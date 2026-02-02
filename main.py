@@ -1,6 +1,7 @@
 import time
 import sys
 import json
+import re
 from curl_cffi import requests
 from stations import StationManager
 from test import Tiantiel12306Login  # 假设 test.py 在同一目录下
@@ -9,6 +10,29 @@ class TicketBooking(Tiantiel12306Login):
     def __init__(self):
         super().__init__()
         self.station_manager = StationManager()
+
+    def get_dynamic_query_url(self):
+        """
+        获取动态查票 URL
+        访问 init 页面，提取 CLeftTicketUrl
+        """
+        init_url = "https://kyfw.12306.cn/otn/leftTicket/init"
+        try:
+            print("正在获取动态查询接口...")
+            resp = self.session.get(init_url, headers=self.headers, impersonate="chrome120")
+            # 查找 CLeftTicketUrl
+            # 格式通常是: var CLeftTicketUrl = 'leftTicket/queryZ';
+            match = re.search(r"var CLeftTicketUrl = '([^']+)';", resp.text)
+            if match:
+                dynamic_part = match.group(1)
+                print(f"获取动态查询接口成功: {dynamic_part}")
+                return f"https://kyfw.12306.cn/otn/{dynamic_part}"
+            else:
+                print("未找到动态查询接口，使用默认接口")
+                return "https://kyfw.12306.cn/otn/leftTicket/query"
+        except Exception as e:
+            print(f"获取动态 URL 失败: {e}")
+            return "https://kyfw.12306.cn/otn/leftTicket/query"
 
     def query_ticket(self, from_station_name, to_station_name, date):
         """
@@ -29,9 +53,8 @@ class TicketBooking(Tiantiel12306Login):
 
         print(f"正在查询 {date} 从 {from_station_name}({from_code}) 到 {to_station_name}({to_code}) 的车票...")
         
-        # 查票接口 URL 可能会变，如果 query 失败，尝试 queryZ 或 queryA 等
-        # 也可以先访问 https://kyfw.12306.cn/otn/leftTicket/init 获取动态的查询 URL
-        query_url = "https://kyfw.12306.cn/otn/leftTicket/query" 
+        # 动态获取查询 URL
+        query_url = self.get_dynamic_query_url()
         
         params = {
             "leftTicketDTO.train_date": date,
@@ -45,10 +68,7 @@ class TicketBooking(Tiantiel12306Login):
             
             # 这里的接口有时会返回 302 或者 html，需要处理
             if "result" not in resp.json().get("data", {}):
-                 # 尝试另一个常见的接口后缀，或者直接打印 resp 查看
-                 # 实际上 12306 查询接口经常变，比如 queryA, queryZ 等
-                 # 这里做一个简单的容错，如果 query 失败，通常需要先访问 init 页面拿到 CLeftTicketUrl
-                 print("查询接口返回数据格式可能有变，尝试解析...")
+                 print("查询接口返回数据异常...")
                  print(resp.text[:200])
                  return
 
