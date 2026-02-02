@@ -62,5 +62,5 @@ class StationManager:
 
 if __name__ == "__main__":
     sm = StationManager()
-    print(f"北京的代码: {sm.get_code('北京')}")
-    print(f"上海的代码: {sm.get_code('上海')}")
+    print(f"杭州的代码: {sm.get_code('杭州')}")
+    print(f"武汉的代码: {sm.get_code('武汉')}")
