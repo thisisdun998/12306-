@@ -74,10 +74,14 @@ class Tiantiel12306Login:
                 elif code == "1":
                     print("已扫描，请在手机上点击确认...", end="\r")
                 elif code == "2":
-                    print("\n登录成功！")
-                    # 打印一下当前的 Cookies，确认我们拿到了凭证
-                    print("当前 Session Cookies:", self.session.cookies.get_dict())
-                    return True # 退出循环，登录完成
+                    print("\n扫码成功，正在验证登录信息...")
+                    if self.cookie_auth():
+                        print("登录验证完成！")
+                        print("当前 Session Cookies:", self.session.cookies.get_dict())
+                        return True
+                    else:
+                        print("登录验证失败")
+                        return False
                 elif code == "3":
                     print("\n二维码已过期，请重新运行程序。")
                     return False
@@ -89,6 +93,43 @@ class Tiantiel12306Login:
             except Exception as e:
                 print(f"\n轮询异常: {e}")
                 time.sleep(2)
+
+    def cookie_auth(self):
+        """步骤 3: 验证 uamtk 和 uamauthclient，完成 Session 激活"""
+        # 3.1 uamtk
+        uamtk_url = "https://kyfw.12306.cn/passport/web/auth/uamtk"
+        data = {"appid": "otn"}
+        
+        try:
+            resp = self.session.post(uamtk_url, data=data, headers=self.headers, impersonate="chrome120")
+            result = resp.json()
+            newapptk = result.get("newapptk")
+            
+            if not newapptk:
+                print("uamtk 获取失败")
+                return False
+                
+        except Exception as e:
+            print(f"uamtk 请求异常: {e}")
+            return False
+
+        # 3.2 uamauthclient
+        uamauth_url = "https://kyfw.12306.cn/otn/uamauthclient"
+        data = {"tk": newapptk}
+        
+        try:
+            resp = self.session.post(uamauth_url, data=data, headers=self.headers, impersonate="chrome120")
+            result = resp.json()
+            
+            if result.get("result_code") == 0:
+                print(f"欢迎您，{result.get('username')}")
+                return True
+            else:
+                print(f"uamauthclient 验证失败: {result}")
+                return False
+        except Exception as e:
+            print(f"uamauthclient 请求异常: {e}")
+            return False
 
     def run(self):
         if self.get_qr_code():

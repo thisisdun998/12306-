@@ -153,9 +153,27 @@ class TicketBooking(Tiantiel12306Login):
             
             ticket_info_match = re.search(r"var ticketInfoForPassengerForm = ({.*?});", html, re.DOTALL)
             if ticket_info_match:
-                key_match = re.search(r"'key_check_isChange':'([^']+)'", html)
-                if key_match:
-                    ticket_info_for_passenger_form['key_check_isChange'] = key_match.group(1)
+                try:
+                    # 使用 json 解析可能更稳健，但 JS 对象格式可能不完全符合 JSON 标准，这里还是用正则提取关键字段
+                    t_info_str = ticket_info_match.group(1).replace("\n", "")
+                    
+                    # 提取 key_check_isChange
+                    key_match = re.search(r"'key_check_isChange':'([^']+)'", t_info_str)
+                    if key_match:
+                        ticket_info_for_passenger_form['key_check_isChange'] = key_match.group(1)
+                    
+                    # 提取 leftTicketStr
+                    left_ticket_match = re.search(r"'leftTicketStr':'([^']+)'", t_info_str)
+                    if left_ticket_match:
+                        ticket_info_for_passenger_form['leftTicketStr'] = left_ticket_match.group(1)
+                        
+                    # 提取 train_location
+                    location_match = re.search(r"'train_location':'([^']+)'", t_info_str)
+                    if location_match:
+                         ticket_info_for_passenger_form['train_location'] = location_match.group(1)
+
+                except Exception as e:
+                    print(f"解析 ticketInfoForPassengerForm 失败: {e}")
             
             print(f"Token: {token}")
             
@@ -173,11 +191,24 @@ class TicketBooking(Tiantiel12306Login):
             print(f"GetTokenAndPassenger Error: {e}")
             return None, None, None
 
-    def confirm_queue(self, train_no, passenger, token, key_check_isChange, left_ticket, train_location):
+    def confirm_queue(self, train_no, passengers, token, key_check_isChange, left_ticket, train_location):
         """4. 确认出票"""
-        seat_type = "O"  # 默认二等座
-        passenger_ticket_str = f"{seat_type},0,1,{passenger['passenger_name']},{passenger['passenger_id_type_code']},{passenger['passenger_id_no']},{passenger['mobile_no']},N"
-        old_passenger_str = f"{passenger['passenger_name']},{passenger['passenger_id_type_code']},{passenger['passenger_id_no']},1_"
+        passenger_ticket_str_list = []
+        old_passenger_str_list = []
+
+        for passenger in passengers:
+            seat_type = "O"  # 默认二等座
+            # passengerTicketStr: seat_type,0,ticket_type(1=adult),name,id_type,id_no,mobile,save_flag(N)
+            p_str = f"{seat_type},0,1,{passenger['passenger_name']},{passenger['passenger_id_type_code']},{passenger['passenger_id_no']},{passenger['mobile_no']},N"
+            passenger_ticket_str_list.append(p_str)
+
+            # oldPassengerStr: name,id_type,id_no,passenger_type
+            # 注意：这里末尾必须带 _
+            o_str = f"{passenger['passenger_name']},{passenger['passenger_id_type_code']},{passenger['passenger_id_no']},1_"
+            old_passenger_str_list.append(o_str)
+
+        passenger_ticket_str = "_".join(passenger_ticket_str_list)
+        old_passenger_str = "".join(old_passenger_str_list)
 
         # 4.1 checkOrderInfo
         check_url = "https://kyfw.12306.cn/otn/confirmPassenger/checkOrderInfo"
@@ -208,24 +239,26 @@ class TicketBooking(Tiantiel12306Login):
 
         # 4.2 confirmSingleForQueue
         confirm_url = "https://kyfw.12306.cn/otn/confirmPassenger/confirmSingleForQueue"
-        confirm_data = {
-            "passengerTicketStr": passenger_ticket_str,
-            "oldPassengerStr": old_passenger_str,
-            "randCode": "",
-            "purpose_codes": "00",
-            "key_check_isChange": key_check_isChange,
-            "leftTicketStr": left_ticket,
-            "train_location": train_location,
-            "choose_seats": "", # 选座，暂空
-            "seatDetailType": "000",
-            "whatsSelect": "1",
-            "roomType": "00",
-            "dwAll": "N",
-            "_json_att": "",
-            "REPEAT_SUBMIT_TOKEN": token
-        }
-
         try:
+            # 必须对 leftTicketStr 进行解码
+            decoded_left_ticket = unquote(left_ticket)
+            confirm_data = {
+                "passengerTicketStr": passenger_ticket_str,
+                "oldPassengerStr": old_passenger_str,
+                "randCode": "",
+                "purpose_codes": "00",
+                "key_check_isChange": key_check_isChange,
+                "leftTicketStr": decoded_left_ticket,
+                "train_location": train_location,
+                "choose_seats": "", # 选座，暂空
+                "seatDetailType": "000",
+                "whatsSelect": "1",
+                "roomType": "00",
+                "dwAll": "N",
+                "_json_att": "",
+                "REPEAT_SUBMIT_TOKEN": token
+            }
+            
             resp = self.session.post(confirm_url, data=confirm_data, headers=self.headers, impersonate="chrome120")
             print(f"ConfirmQueue: {resp.json()}")
             return resp.json().get("data", {}).get("submitStatus") == True
@@ -248,7 +281,7 @@ class TicketBooking(Tiantiel12306Login):
         
         # 2. CheckUser
         if not self.check_user():
-            print("用户未登录或状态异常")
+            print("用户未登录或状态异常，请重新运行程序扫码登录")
             return
 
         # 3. SubmitOrderRequest
@@ -262,17 +295,50 @@ class TicketBooking(Tiantiel12306Login):
             print("获取 Token 或乘客信息失败")
             return
         
-        print(f"发现 {len(passengers)} 位乘车人:")
+        print(f"\n发现 {len(passengers)} 位乘车人:")
         for idx, p in enumerate(passengers):
             print(f"{idx}: {p['passenger_name']} ({p['passenger_id_no']})")
         
-        # 默认选第一个人
-        p_index = 0 
-        selected_passenger = passengers[p_index]
-        print(f"正在为 {selected_passenger['passenger_name']} 抢 {target_train_no} 的票...")
+        # 手动选择乘车人
+        selected_passengers = []
+        while True:
+            selection = input("\n请输入乘车人序号(多选使用逗号分隔, 例如 0,1): ").strip()
+            if not selection:
+                print("请输入序号")
+                continue
+            
+            try:
+                # 支持中文逗号和英文逗号
+                indices = [int(i.strip()) for i in selection.replace('，', ',').split(',')]
+                valid = True
+                temp_selected = []
+                for i in indices:
+                    if 0 <= i < len(passengers):
+                        temp_selected.append(passengers[i])
+                    else:
+                        print(f"序号 {i} 无效")
+                        valid = False
+                        break
+                
+                if valid:
+                    selected_passengers = temp_selected
+                    break
+            except ValueError:
+                print("输入格式错误，请输入数字")
+
+        names = ", ".join([p['passenger_name'] for p in selected_passengers])
+        print(f"正在为 [{names}] 抢 {target_train_no} 的票...")
+
+        # 更新 leftTicketStr 和 train_location (如果 initDc 返回了新的值)
+        if ticket_info.get('leftTicketStr'):
+            print(f"使用最新的 leftTicketStr: {ticket_info.get('leftTicketStr')[:20]}...")
+            left_ticket = ticket_info.get('leftTicketStr')
+        
+        if ticket_info.get('train_location'):
+             train_location = ticket_info.get('train_location')
 
         # 5. Confirm Queue
-        if self.confirm_queue(target_train_no, selected_passenger, token, ticket_info.get('key_check_isChange'), left_ticket, train_location):
+        if self.confirm_queue(target_train_no, selected_passengers, token, ticket_info.get('key_check_isChange'), left_ticket, train_location):
             print("下单请求已提交！请去 APP 查看未完成订单！")
             
             # 这里还可以增加一个 queryOrderWaitTime 的轮询，来确认是否真正出票成功
@@ -286,9 +352,9 @@ if __name__ == "__main__":
     if bot.run(): 
         print("\n=== 自动抢票模式 ===")
         # 示例：抢明天的票
-        tomorrow = time.strftime("%Y-%m-%d", time.localtime(time.time() + 86400))
-        from_st = "北京"
-        to_st = "上海"
+        tomorrow = time.strftime("%Y-%m-%d", time.localtime(time.time() + 172000))
+        from_st = "武汉"
+        to_st = "杭州"
         
         # 1. 先查一次，让用户看有什么车
         available_trains = bot.query_ticket(from_st, to_st, tomorrow)
