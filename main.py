@@ -119,6 +119,11 @@ class TicketBooking(Tiantiel12306Login):
     def submit_order_request(self, secret_str, train_date, from_station_name, to_station_name):
         """2. 提交下单请求"""
         url = "https://kyfw.12306.cn/otn/leftTicket/submitOrderRequest"
+        
+        # 设置 Referer
+        headers = self.headers.copy()
+        headers["Referer"] = "https://kyfw.12306.cn/otn/leftTicket/init"
+        
         data = {
             "secretStr": secret_str,
             "train_date": train_date, # 格式 2024-02-02
@@ -130,85 +135,99 @@ class TicketBooking(Tiantiel12306Login):
             "undefined": ""
         }
         try:
-            resp = self.session.post(url, data=data, headers=self.headers, impersonate="chrome120")
+            resp = self.session.post(url, data=data, headers=headers, impersonate="chrome120")
             print(f"SubmitOrderRequest: {resp.json()}")
             return resp.json().get("status") == True
         except Exception as e:
             print(f"SubmitOrderRequest Error: {e}")
             return False
 
-    def get_token_and_passenger(self):
-        """3. 获取 Token 和 乘客信息"""
+    def get_passengers_direct(self):
+        """直接查询常用联系人，不依赖下单流程"""
+        url = "https://kyfw.12306.cn/otn/passengers/query"
+        data = {
+            "pageIndex": "1",
+            "pageSize": "100"
+        }
+        try:
+            resp = self.session.post(url, data=data, headers=self.headers, impersonate="chrome120")
+            if resp.json().get("data", {}).get("datas"):
+                return resp.json()["data"]["datas"]
+            return []
+        except Exception as e:
+            print(f"获取联系人失败: {e}")
+            return []
+
+    def get_token_and_ticket_info(self):
+        """3. 获取 Token 和 关键参数 (initDc)"""
         init_dc_url = "https://kyfw.12306.cn/otn/confirmPassenger/initDc"
         data = {"_json_att": ""}
-        token = ""
-        ticket_info_for_passenger_form = {}
         
+        # 设置 Referer
+        headers = self.headers.copy()
+        headers["Referer"] = "https://kyfw.12306.cn/otn/leftTicket/init"
+
         try:
-            resp = self.session.post(init_dc_url, data=data, headers=self.headers, impersonate="chrome120")
+            resp = self.session.post(init_dc_url, data=data, headers=headers, impersonate="chrome120")
             html = resp.text
+            token = ""
             token_match = re.search(r"var globalRepeatSubmitToken = '([^']+)';", html)
             if token_match:
                 token = token_match.group(1)
+            else:
+                print(f"InitDc Token 未找到。响应前500字符: {html[:500]}")
             
+            ticket_info = {}
             ticket_info_match = re.search(r"var ticketInfoForPassengerForm = ({.*?});", html, re.DOTALL)
             if ticket_info_match:
                 try:
-                    # 使用 json 解析可能更稳健，但 JS 对象格式可能不完全符合 JSON 标准，这里还是用正则提取关键字段
                     t_info_str = ticket_info_match.group(1).replace("\n", "")
                     
-                    # 提取 key_check_isChange
                     key_match = re.search(r"'key_check_isChange':'([^']+)'", t_info_str)
-                    if key_match:
-                        ticket_info_for_passenger_form['key_check_isChange'] = key_match.group(1)
+                    if key_match: ticket_info['key_check_isChange'] = key_match.group(1)
                     
-                    # 提取 leftTicketStr
                     left_ticket_match = re.search(r"'leftTicketStr':'([^']+)'", t_info_str)
-                    if left_ticket_match:
-                        ticket_info_for_passenger_form['leftTicketStr'] = left_ticket_match.group(1)
+                    if left_ticket_match: ticket_info['leftTicketStr'] = left_ticket_match.group(1)
                         
-                    # 提取 train_location
                     location_match = re.search(r"'train_location':'([^']+)'", t_info_str)
-                    if location_match:
-                         ticket_info_for_passenger_form['train_location'] = location_match.group(1)
+                    if location_match: ticket_info['train_location'] = location_match.group(1)
 
                 except Exception as e:
-                    print(f"解析 ticketInfoForPassengerForm 失败: {e}")
+                    print(f"解析 ticketInfo 失败: {e}")
+            else:
+                print("InitDc TicketInfo 未找到。")
             
-            print(f"Token: {token}")
-            
-            passenger_url = "https://kyfw.12306.cn/otn/confirmPassenger/getPassengerDTOs"
-            p_data = {
-                "_json_att": "",
-                "REPEAT_SUBMIT_TOKEN": token
-            }
-            p_resp = self.session.post(passenger_url, data=p_data, headers=self.headers, impersonate="chrome120")
-            passengers = p_resp.json().get("data", {}).get("normal_passengers", [])
-            
-            return token, ticket_info_for_passenger_form, passengers
+            return token, ticket_info
             
         except Exception as e:
-            print(f"GetTokenAndPassenger Error: {e}")
-            return None, None, None
+            print(f"InitDc Error: {e}")
+            return None, None
 
-    def confirm_queue(self, train_no, passengers, token, key_check_isChange, left_ticket, train_location):
-        """4. 确认出票"""
+
+    def confirm_queue(self, train_no, passengers, token, key_check_isChange, left_ticket, train_location, seat_type="O"):
+        """
+        4. 确认出票
+        新增参数 seat_type: 接受外部传入的席别代码 (O=二等座, M=一等座, 9=商务座)
+        """
         passenger_ticket_str_list = []
         old_passenger_str_list = []
 
         for passenger in passengers:
-            seat_type = "O"  # 默认二等座
+            # --- 修正：这里直接使用传入的 seat_type，不再写死 "O" ---
             # passengerTicketStr: seat_type,0,ticket_type(1=adult),name,id_type,id_no,mobile,save_flag(N)
             p_str = f"{seat_type},0,1,{passenger['passenger_name']},{passenger['passenger_id_type_code']},{passenger['passenger_id_no']},{passenger['mobile_no']},N"
             passenger_ticket_str_list.append(p_str)
 
             # oldPassengerStr: name,id_type,id_no,passenger_type
-            # 注意：这里末尾必须带 _
             o_str = f"{passenger['passenger_name']},{passenger['passenger_id_type_code']},{passenger['passenger_id_no']},1_"
             old_passenger_str_list.append(o_str)
 
         passenger_ticket_str = "_".join(passenger_ticket_str_list)
         old_passenger_str = "".join(old_passenger_str_list)
+        
+        # 设置 Referer
+        headers = self.headers.copy()
+        headers["Referer"] = "https://kyfw.12306.cn/otn/confirmPassenger/initDc"
 
         # 4.1 checkOrderInfo
         check_url = "https://kyfw.12306.cn/otn/confirmPassenger/checkOrderInfo"
@@ -228,7 +247,7 @@ class TicketBooking(Tiantiel12306Login):
         }
         
         try:
-            resp = self.session.post(check_url, data=check_data, headers=self.headers, impersonate="chrome120")
+            resp = self.session.post(check_url, data=check_data, headers=headers, impersonate="chrome120")
             print(f"CheckOrderInfo: {resp.json()}")
             if not resp.json().get("data", {}).get("submitStatus"):
                  print(f"校验订单失败: {resp.json().get('data', {}).get('errMsg')}")
@@ -250,7 +269,7 @@ class TicketBooking(Tiantiel12306Login):
                 "key_check_isChange": key_check_isChange,
                 "leftTicketStr": decoded_left_ticket,
                 "train_location": train_location,
-                "choose_seats": "", # 选座，暂空
+                "choose_seats": "", 
                 "seatDetailType": "000",
                 "whatsSelect": "1",
                 "roomType": "00",
@@ -259,109 +278,155 @@ class TicketBooking(Tiantiel12306Login):
                 "REPEAT_SUBMIT_TOKEN": token
             }
             
-            resp = self.session.post(confirm_url, data=confirm_data, headers=self.headers, impersonate="chrome120")
+            resp = self.session.post(confirm_url, data=confirm_data, headers=headers, impersonate="chrome120")
             print(f"ConfirmQueue: {resp.json()}")
             return resp.json().get("data", {}).get("submitStatus") == True
         except Exception as e:
             print(f"ConfirmQueue Error: {e}")
             return False
 
-    def run_order_flow(self, from_station, to_station, date, target_train_no):
-        """执行完整的下单流程"""
-        # 1. 查票
+    def execute_booking(self, from_station, to_station, date, target_train_no, selected_passengers, seat_type):
+        """执行一次完整的抢票流程 (Query -> Submit -> InitDc -> Confirm)"""
+        
+        # 1. 查询最新 SecretStr
+        print(f"\n>>> 正在获取最新票务信息 ({target_train_no})...")
         trains = self.query_ticket(from_station, to_station, date)
-        if target_train_no not in trains:
-            print(f"车次 {target_train_no} 不存在或不可预订")
-            return
-
+        if target_train_no not in self.ticket_info:
+            print("刷新失败，车次可能已不可预订")
+            return False
+            
         info = self.ticket_info.get(target_train_no)
-        secret_str = info['secret']
+        fresh_secret_str = info['secret']
         left_ticket = info['leftTicket']
         train_location = info['location']
-        
-        # 2. CheckUser
-        if not self.check_user():
-            print("用户未登录或状态异常，请重新运行程序扫码登录")
-            return
 
-        # 3. SubmitOrderRequest
-        if not self.submit_order_request(secret_str, date, from_station, to_station):
-            print("提交订单请求失败")
-            return
+        # 2. 提交订单请求
+        if not self.submit_order_request(fresh_secret_str, date, from_station, to_station):
+            print("提交订单请求失败 (车次过期/无票/风控)")
+            return False
 
-        # 4. Get Token & Passengers
-        token, ticket_info, passengers = self.get_token_and_passenger()
-        if not token or not passengers:
-            print("获取 Token 或乘客信息失败")
-            return
-        
-        print(f"\n发现 {len(passengers)} 位乘车人:")
-        for idx, p in enumerate(passengers):
-            print(f"{idx}: {p['passenger_name']} ({p['passenger_id_no']})")
-        
-        # 手动选择乘车人
-        selected_passengers = []
-        while True:
-            selection = input("\n请输入乘车人序号(多选使用逗号分隔, 例如 0,1): ").strip()
-            if not selection:
-                print("请输入序号")
-                continue
+        # 3. 获取 Token 和 关键参数 (initDc)
+        # 这一步必须在 submit 成功后进行，以获取最新的 token 和 key_check
+        token, ticket_info = self.get_token_and_ticket_info()
+        if not token or not ticket_info:
+            print("初始化订单页面失败 (InitDc)")
+            return False
             
-            try:
-                # 支持中文逗号和英文逗号
-                indices = [int(i.strip()) for i in selection.replace('，', ',').split(',')]
-                valid = True
-                temp_selected = []
-                for i in indices:
-                    if 0 <= i < len(passengers):
-                        temp_selected.append(passengers[i])
-                    else:
-                        print(f"序号 {i} 无效")
-                        valid = False
-                        break
-                
-                if valid:
-                    selected_passengers = temp_selected
-                    break
-            except ValueError:
-                print("输入格式错误，请输入数字")
-
-        names = ", ".join([p['passenger_name'] for p in selected_passengers])
-        print(f"正在为 [{names}] 抢 {target_train_no} 的票...")
-
-        # 更新 leftTicketStr 和 train_location (如果 initDc 返回了新的值)
+        # 使用 initDc 返回的最新数据更新
         if ticket_info.get('leftTicketStr'):
-            print(f"使用最新的 leftTicketStr: {ticket_info.get('leftTicketStr')[:20]}...")
             left_ticket = ticket_info.get('leftTicketStr')
-        
         if ticket_info.get('train_location'):
-             train_location = ticket_info.get('train_location')
+            train_location = ticket_info.get('train_location')
+        key_check = ticket_info.get('key_check_isChange')
 
-        # 5. Confirm Queue
-        if self.confirm_queue(target_train_no, selected_passengers, token, ticket_info.get('key_check_isChange'), left_ticket, train_location):
-            print("下单请求已提交！请去 APP 查看未完成订单！")
-            
-            # 这里还可以增加一个 queryOrderWaitTime 的轮询，来确认是否真正出票成功
-            # 但作为 MVP，提交成功通常就意味着排队成功
+        # 4. 确认排队
+        if self.confirm_queue(target_train_no, selected_passengers, token, key_check, left_ticket, train_location, seat_type=seat_type):
+            print("\n✅ 下单请求已提交！请立即打开 12306 APP 查看未完成订单并付款！")
+            return True
         else:
-            print("下单失败")
+            print("\n❌ 下单失败")
+            return False
 
+    def run_interactive_loop(self):
+        """主交互循环"""
+        while True:
+            # 1. 输入基本信息
+            print("\n" + "="*50)
+            from_station = input("请输入出发站 (例如 北京): ").strip()
+            to_station = input("请输入到达站 (例如 上海): ").strip()
+            date = input("请输入日期 (例如 2024-02-05): ").strip()
+            
+            if not (from_station and to_station and date):
+                print("信息不完整，请重新输入")
+                continue
+
+            # 2. 查票
+            trains = self.query_ticket(from_station, to_station, date)
+            if not trains:
+                retry = input("查询无结果，是否重试? (y/n): ")
+                if retry.lower() == 'y': continue
+                else: continue # 回到开头
+
+            target_train_no = input("\n请输入要抢的车次 (例如 G1): ").strip()
+            # 这里简单校验一下 ticket_info 是否有该车次，虽然 query_ticket 已经填充了
+            if target_train_no not in self.ticket_info:
+                print("无效的车次，请重新开始")
+                continue
+                
+            # 3. 准备乘客和座位
+            if not self.check_user():
+                print("登录状态失效，尝试重新登录...")
+                if not self.run(): # 尝试重新登录
+                    print("重新登录失败，退出")
+                    return
+
+            print("正在获取联系人列表...")
+            passengers = self.get_passengers_direct()
+            if not passengers:
+                print("未找到联系人，请检查登录状态或是否已添加联系人")
+                continue
+                
+            print(f"\n发现 {len(passengers)} 位乘车人:")
+            for idx, p in enumerate(passengers):
+                print(f"{idx}: {p['passenger_name']} ({p['passenger_id_no']})")
+                
+            # 选择乘车人
+            selected_passengers = []
+            while True:
+                selection = input("\n请输入乘车人序号(多选使用逗号分隔, 例如 0,1): ").strip()
+                if not selection: continue
+                try:
+                    indices = [int(i.strip()) for i in selection.replace('，', ',').split(',')]
+                    valid = True
+                    temp_selected = []
+                    for i in indices:
+                        if 0 <= i < len(passengers):
+                            temp_selected.append(passengers[i])
+                        else:
+                            print(f"序号 {i} 无效"); valid = False; break
+                    if valid:
+                        selected_passengers = temp_selected; break
+                except ValueError:
+                    print("输入格式错误")
+
+            # 选择座位
+            print("\n请选择座位类型:")
+            print("1: 二等座 (O)")
+            print("2: 一等座 (M)")
+            print("3: 商务座 (9)")
+            print("4: 无座 (1)")
+            seat_map = {"1": "O", "2": "M", "3": "9", "4": "1"}
+            seat_input = input("请输入序号 (默认1): ").strip()
+            target_seat_type = seat_map.get(seat_input, "O")
+            
+            names = ", ".join([p['passenger_name'] for p in selected_passengers])
+            
+            # 4. 抢票循环
+            while True:
+                print(f"\n>>> 准备抢票: {target_train_no} | 乘客: {names} | 坐席: {target_seat_type}")
+                
+                success = self.execute_booking(from_station, to_station, date, target_train_no, selected_passengers, target_seat_type)
+                
+                if success:
+                    print("抢票流程结束。")
+                    return # 成功后退出
+                
+                # 失败交互
+                choice = input("\n[抢票失败] r: 重试当前车次, n: 重新选车次/时间, q: 退出程序 > ").strip().lower()
+                if choice == 'r':
+                    time.sleep(1) # 稍作休眠避免过快
+                    continue
+                elif choice == 'q':
+                    sys.exit(0)
+                else:
+                    break # 跳出内层循环，回到最外层
 
 if __name__ == "__main__":
-    bot = TicketBooking()
-    if bot.run(): 
-        print("\n=== 自动抢票模式 ===")
-        # 示例：抢明天的票
-        tomorrow = time.strftime("%Y-%m-%d", time.localtime(time.time() + 172000))
-        from_st = "武汉"
-        to_st = "杭州"
+    ticket_booking = TicketBooking()
+    
+    # 扫码登录 (支持 Redis 缓存)
+    if not ticket_booking.run():
+        sys.exit(1)
         
-        # 1. 先查一次，让用户看有什么车
-        available_trains = bot.query_ticket(from_st, to_st, tomorrow)
-        
-        if available_trains:
-            target = input("\n请输入要抢的车次 (例如 G1): ").strip()
-            if target in available_trains:
-                bot.run_order_flow(from_st, to_st, tomorrow, target)
-            else:
-                print("车次无效")
+    ticket_booking.run_interactive_loop()
+

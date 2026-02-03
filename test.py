@@ -1,6 +1,8 @@
 import time
 import base64
 import io
+import pickle
+import redis
 from PIL import Image
 from curl_cffi import requests
 
@@ -16,6 +18,47 @@ class Tiantiel12306Login:
             "Origin": "https://kyfw.12306.cn"
         }
         self.uuid = ""
+        
+        # 初始化 Redis
+        try:
+            self.redis_client = redis.Redis(host='127.0.0.1', port=6379, password='xiaodun', decode_responses=False)
+        except Exception as e:
+            print(f"Redis 连接失败: {e}")
+            self.redis_client = None
+
+    def save_cookies(self):
+        """保存 Cookies 到 Redis"""
+        if self.redis_client:
+            try:
+                cookies = self.session.cookies.get_dict()
+                self.redis_client.set('12306_cookies', pickle.dumps(cookies))
+                print(">>> 登录状态已保存到 Redis")
+            except Exception as e:
+                print(f"保存 Cookies 失败: {e}")
+
+    def load_cookies(self):
+        """从 Redis 加载 Cookies"""
+        if self.redis_client:
+            try:
+                data = self.redis_client.get('12306_cookies')
+                if data:
+                    cookies = pickle.loads(data)
+                    self.session.cookies.update(cookies)
+                    print(">>> 已从 Redis 加载历史登录状态")
+                    return True
+            except Exception as e:
+                print(f"加载 Cookies 失败: {e}")
+        return False
+
+    def is_login_valid(self):
+        """验证当前 Session 是否有效"""
+        url = "https://kyfw.12306.cn/otn/login/checkUser"
+        data = {"_json_att": ""}
+        try:
+            resp = self.session.post(url, data=data, headers=self.headers, impersonate="chrome120")
+            return resp.json().get("data", {}).get("flag") == True
+        except:
+            return False
 
     def get_qr_code(self):
         """步骤 1: 获取登录二维码"""
@@ -132,8 +175,20 @@ class Tiantiel12306Login:
             return False
 
     def run(self):
+        # 1. 尝试从 Redis 恢复登录
+        if self.load_cookies():
+            print("正在验证缓存的登录状态...")
+            if self.is_login_valid():
+                print(">>> 登录状态有效，无需重新扫码！")
+                return True
+            else:
+                print(">>> 缓存已失效，需要重新扫码")
+        
+        # 2. 扫码登录流程
         if self.get_qr_code():
-            return self.check_qr_status()
+            if self.check_qr_status():
+                self.save_cookies() # 登录成功后保存
+                return True
         return False
 
 if __name__ == "__main__":
