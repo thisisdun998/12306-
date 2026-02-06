@@ -18,6 +18,7 @@ class Tiantiel12306Login:
             "Origin": "https://kyfw.12306.cn"
         }
         self.uuid = ""
+        self._last_qr_base64 = ""  # 存储最后生成的二维码base64数据
         
         # 初始化 Redis
         try:
@@ -60,8 +61,8 @@ class Tiantiel12306Login:
         except:
             return False
 
-    def get_qr_code(self):
-        """步骤 1: 获取登录二维码"""
+    def get_qr_code_data(self, show_image=False):
+        """步骤 1: 获取登录二维码 (返回数据给 Web 层)"""
         url = "https://kyfw.12306.cn/passport/web/create-qr64"
         data = {
             "appid": "otn"
@@ -76,16 +77,33 @@ class Tiantiel12306Login:
             if resp_json.get("result_code") == "0":
                 self.uuid = resp_json.get("uuid")
                 image_b64 = resp_json.get("image")
+                self._last_qr_base64 = image_b64  # 存储base64数据
                 print(f"二维码获取成功! UUID: {self.uuid}")
-                self._show_image(image_b64)
-                return True
+                if show_image:
+                    self._show_image(image_b64)
+                return {
+                    "success": True,
+                    "uuid": self.uuid,
+                    "qr_image": image_b64
+                }
             else:
                 print(f"获取二维码失败: {resp_json}")
-                return False
+                return {
+                    "success": False,
+                    "message": str(resp_json)
+                }
                 
         except Exception as e:
             print(f"请求异常: {e}")
-            return False
+            return {
+                "success": False,
+                "message": str(e)
+            }
+
+    def get_qr_code(self):
+        """步骤 1: 获取登录二维码 (CLI 兼容)"""
+        result = self.get_qr_code_data(show_image=True)
+        return result.get("success") == True
 
     def _show_image(self, base64_str):
         """辅助方法: 解码并显示 Base64 图片"""
@@ -136,6 +154,38 @@ class Tiantiel12306Login:
             except Exception as e:
                 print(f"\n轮询异常: {e}")
                 time.sleep(2)
+
+    def check_qr_status_once(self):
+        """Web 轮询：只检查一次二维码状态"""
+        if not self.uuid:
+            return {"status": "failed", "message": "二维码UUID无效"}
+        
+        url = "https://kyfw.12306.cn/passport/web/checkqr"
+        data = {
+            "uuid": self.uuid,
+            "appid": "otn"
+        }
+        
+        try:
+            resp = self.session.post(url, data=data, headers=self.headers, impersonate="chrome120")
+            resp_json = resp.json()
+            
+            code = resp_json.get("result_code")
+            
+            if code == "0":
+                return {"status": "waiting", "message": "等待扫描..."}
+            if code == "1":
+                return {"status": "scanned", "message": "已扫描，请在手机上点击确认..."}
+            if code == "2":
+                if self.cookie_auth():
+                    return {"status": "success", "message": "登录成功"}
+                return {"status": "failed", "message": "登录验证失败"}
+            if code == "3":
+                return {"status": "expired", "message": "二维码已过期，请重新获取"}
+            
+            return {"status": "failed", "message": f"未知状态: {resp_json}"}
+        except Exception as e:
+            return {"status": "failed", "message": f"检查失败: {e}"}
 
     def cookie_auth(self):
         """步骤 3: 验证 uamtk 和 uamauthclient，完成 Session 激活"""

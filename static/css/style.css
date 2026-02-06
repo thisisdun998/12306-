@@ -1,0 +1,370 @@
+/* 主体样式 */
+body {
+    background-color: #f8f9fa;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* 导航栏样式 */
+.navbar-brand {
+    font-weight: bold;
+}
+
+.navbar-brand i {
+    margin-right: 8px;
+}
+
+/* 卡片样式 */
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border: none;
+    margin-bottom: 20px;
+}
+
+.card-header {
+    background-color: #007bff;
+    color: white;
+    font-weight: 500;
+    border-radius: 0;
+}
+
+.card-header i {
+    margin-right: 8px;
+}
+
+/* 表单样式 */
+.form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.btn {
+    border-radius: 4px;
+}
+
+/* 二维码容器 */
+#qrCode {
+    margin: 20px auto;
+    padding: 15px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    display: inline-block;
+}
+
+#qrCode img {
+    max-width: 200px;
+    height: auto;
+}
+
+/* 表格样式 */
+.table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05);
+}
+
+/* 状态指示器 */
+.status-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.status-success {
+    background-color: #28a745;
+}
+
+.status-warning {
+    background-color: #ffc107;
+}
+
+.status-danger {
+    background-color: #dc3545;
+}
+
+.status-info {
+    background-color: #17a2b8;
+}
+
+/* 乘客选择样式 */
+.passenger-item {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.passenger-item:hover {
+    background-color: #f8f9fa;
+    border-color: #007bff;
+}
+
+.passenger-item.selected {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+/* 按钮组样式 */
+.btn-group-vertical .btn {
+    margin-bottom: 5px;
+}
+
+/* 加载动画 */
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .container {
+        padding: 0 15px;
+    }
+    
+    .card {
+        margin-bottom: 15px;
+    }
+    
+    .table-responsive {
+        font-size: 0.9em;
+    }
+    
+    .btn {
+        font-size: 0.9em;
+        padding: 8px 12px;
+    }
+}
+
+/* 提示信息样式 */
+.alert {
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
+}
+
+.alert-warning {
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+    color: #856404;
+}
+
+.alert-danger {
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+/* 进度条样式 */
+.progress {
+    height: 20px;
+    margin: 10px 0;
+}
+
+.progress-bar {
+    transition: width 0.6s ease;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* 动画效果 */
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-up {
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* 工具提示 */
+.tooltip-inner {
+    background-color: #343a40;
+    color: white;
+    border-radius: 4px;
+    padding: 5px 10px;
+}
+
+/* 徽章样式 */
+.badge {
+    font-weight: 500;
+}
+
+.badge-success {
+    background-color: #28a745;
+}
+
+.badge-warning {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.badge-danger {
+    background-color: #dc3545;
+}
+
+/* 分割线 */
+hr {
+    margin: 15px 0;
+    border-color: #e9ecef;
+}
+
+/* 文本样式 */
+.text-muted {
+    color: #6c757d !important;
+}
+
+.text-success {
+    color: #28a745 !important;
+}
+
+.text-warning {
+    color: #ffc107 !important;
+}
+
+.text-danger {
+    color: #dc3545 !important;
+}
+
+/* 边距工具类 */
+.mt-1 { margin-top: 0.25rem !important; }
+.mt-2 { margin-top: 0.5rem !important; }
+.mt-3 { margin-top: 1rem !important; }
+.mb-1 { margin-bottom: 0.25rem !important; }
+.mb-2 { margin-bottom: 0.5rem !important; }
+.mb-3 { margin-bottom: 1rem !important; }
+.ms-1 { margin-left: 0.25rem !important; }
+.ms-2 { margin-left: 0.5rem !important; }
+.me-1 { margin-right: 0.25rem !important; }
+.me-2 { margin-right: 0.5rem !important; }
+
+/* 宽度工具类 */
+.w-100 { width: 100% !important; }
+.w-75 { width: 75% !important; }
+.w-50 { width: 50% !important; }
+/* 登录状态样式 */
+#loginStatusText {
+    transition: all 0.3s ease;
+}
+
+#loginStatusText.loggedIn {
+    color: #28a745 !important;
+}
+
+#loginStatusText.loggedIn i {
+    color: #28a745;
+}
+
+.btn-login-animated {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.btn-login-animated:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.btn-login-animated:active {
+    transform: translateY(0);
+}
+
+/* 模态框增强样式 */
+.modal-content {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: white;
+    border-radius: 10px 10px 0 0 !important;
+    border: none;
+}
+
+.modal-title i {
+    font-size: 1.2em;
+}
+
+#qrContainer {
+    padding: 20px;
+}
+
+#qrCode {
+    margin: 20px auto;
+    padding: 20px;
+    background: white;
+    border: 2px dashed #007bff;
+    border-radius: 10px;
+    display: inline-block;
+    transition: all 0.3s ease;
+}
+
+#qrCode:hover {
+    border-color: #0056b3;
+    transform: scale(1.02);
+}
+
+#qrCode img {
+    max-width: 200px;
+    height: auto;
+    border-radius: 5px;
+}
+
+.login-status-text {
+    font-weight: 500;
+    font-size: 1.1em;
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
